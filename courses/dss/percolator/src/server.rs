@@ -348,28 +348,28 @@ impl MemoryStorage {
             /* TODO:
                 primary lock exist, means previous transaction not committed
                 should wait until TTL to clean primary lock
-                pseudocode:
-                if *key == lk_primary && !reach_ttl(){
-                    return;
-                }
             */
 
-            // erase secondary lock and write commit
-            match kv_guard.lookup_key_by_value(
-                Column::Write,
-                &Value::Timestamp(lk_start_ts),
-                Some(lk_start_ts),
-                None,
-            ) {
-                // primary commit success, exist write record
-                Some((write_key, prev_commit_ts)) => {
-                    self.remove_lock(&mut kv_guard, key.clone(), lk_start_ts);
-                    self.set_write(&mut kv_guard, key.clone(), prev_commit_ts, lk_start_ts);
-                }
-                // commit failed, should clean both lock and data
-                None => {
-                    self.remove_lock(&mut kv_guard, key.clone(), lk_start_ts);
-                    self.remove_data(&mut kv_guard, key.clone(), lk_start_ts);
+            if *key == lk_primary {
+                self.remove_lock(&mut kv_guard, key.clone(), lk_start_ts);
+                self.remove_data(&mut kv_guard, key.clone(), lk_start_ts)
+            } else {
+                // erase secondary lock and write commit
+                match kv_guard.lookup_key_by_value(
+                    Column::Write,
+                    &Value::Timestamp(lk_start_ts),
+                    Some(lk_start_ts),
+                    None,
+                ) {
+                    // primary commit success, exist write record, should clean lock and write commit
+                    Some((write_key, prev_commit_ts)) => {
+                        self.remove_lock(&mut kv_guard, key.clone(), lk_start_ts);
+                        self.set_write(&mut kv_guard, key.clone(), prev_commit_ts, lk_start_ts);
+                    }
+                    // commit failed, should clean lock
+                    None => {
+                        self.remove_lock(&mut kv_guard, key.clone(), lk_start_ts);
+                    }
                 }
             }
         }
